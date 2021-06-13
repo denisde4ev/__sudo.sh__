@@ -1,0 +1,76 @@
+#!/bin/sh
+
+# initual SOURCE: https://github.com/FydeOS-ArcHero/chromiumos_overlays_chromiumos-overlay/blob/fb0289fb5298fdb75a9984565bffe961f0af2295/chromeos-base/chromeos-base/files/sudo
+
+export SUDO_USER=${USER:-$(id -un)} SUDO_UID=${EUID:-$(id -u)} SUDO_GID=${GROUPS:-$(id -g)}
+export SUDO_COMMAND="$@"
+
+_sudo_pwd=${PWD:-$(pwd)}
+_sudo_user=root
+_sudo_stdin=0
+_sudo_login=
+_sudo_shell=
+_sudo_background=
+
+
+while [ $# -ne 0 ]; do
+	case $1 in
+		-v) exit 1;; # error on asking --validate is this how it shoud work?
+		-K) exit 0;;
+		# -R) _sudo_pwd=$2; shift;; # COULD NOT TEST, every time I get "sudo: you are not permitted to use the -R option with ..."
+		-u) _sudo_user=$2; shift;;
+		-S) _sudo_stdin=1;;
+		# -s) [ "$_sudo_login$_sudo_shell" = i ]] && { echo >&2 'sudo: you may not specify both the -i and -s options'; exit 1; }; _sudo_is=s;;
+		-i) _sudo_login=-l;;
+		-s) _sudo_shell=1;;
+		-b) _sudo_background='&';;
+		--) shift; break;;
+		-h|--help) printf >&2 '\E[1;33mTODO:\E[m %s\n' 'help message';;
+		-*) echo 1>&2 "sudo: not supported option option: $1"; exit 1;;
+		*=*) export "$1";;
+		*) break;;
+	esac
+	shift
+done
+
+[ -n "$_sudo_shell" ] && [ -n "$_sudo_login" ] && {
+	echo >&2 'sudo: you may not specify both the -i and -s options'
+	printf >&2 '\E[1;33mTODO:\E[m %s\n' 'usage help message'
+	exit 1
+}
+
+[ $# -eq 0 ] && [ -z "$_sudo_login$_sudo_shell" ] && {
+	printf >&2 '\E[1;33mTODO:\E[m %s\n' 'usage help message'
+	exit $?
+}
+
+
+	# cd "$_sudo_pwd"  # shoud not  WHEN [ -n "$_sudo_login$_sudo_shell" ] && [ $# -eq 0 ]
+
+	# expected "su" to read passwrod from stdin by default,  not tested on all platforms
+	# bug: 'Password:' prompt will be outputed to STDERR not /dev/tty, micro will not prompt
+	# bug: I/O /dev/tty in invoked command will fail ""
+
+	# ${_sudo_login:+"$_sudo_login"} -> dont risk IFS to include '-l'
+if [ "$SUDO_UID" -eq 0 ] && [ "$_sudo_user" = root ]; then
+	eval 'exec "$@"'" $_sudo_background"
+
+elif [ "$_sudo_stdin" -eq 1 ]; then
+	if [ -n "$_sudo_login$_sudo_shell" ]; then
+		arg exec su ${_sudo_login:+"$_sudo_login"} -- "${_sudo_user:-root}"
+	else
+		exec su -c 'cd "$0"; exec     "$@"'" $_sudo_background" -- "${_sudo_user:-root}" "$_sudo_pwd" "$@"
+	fi
+else
+	if [ -n "$_sudo_login" ]; then
+		TODO not done
+		# todo:$_sudo_background ?
+		exec su ${_sudo_login:+"$_sudo_login"} -c 'cd "$0"; exec <&3 "${SHELL:-/bin/sh}"' -- "${_sudo_user:-root}" "$_sudo_pwd" 3<&0 </dev/tty
+	elif [ -n "$_sudo_shell" ]; then
+		TODO not done
+		exec su ${_sudo_login:+"$_sudo_login"} -c 'cd "$0"; exec <&3 "${SHELL:-/bin/sh}"' -- "${_sudo_user:-root}" "$_sudo_pwd" 3<&0 </dev/tty
+	else
+		exec su -c 'cd "$0"; exec <&3 "$@"'" $_sudo_background" -- "${_sudo_user:-root}" "$_sudo_pwd" "$@" 3<&0 </dev/tty
+	fi
+	# exec su -c 'if [ "$SHELL" = "$0" ]; then cd "$1";shift;else cd "$0";fi ; exec <&3 "$@"' "${_sudo_user:-root}" -- "$_sudo_pwd" "$@" 3<&0 </dev/tty
+fi
