@@ -15,9 +15,6 @@ _sudo_chdir=
 _sudo_to_exit=
 _sudo_to_usage=
 
-_sudo_arg_i=
-_sudo_arg_val=
-
 
 err() {
 	printf '%s\n' "$1"
@@ -27,42 +24,8 @@ err() {
 }
 
 while [ "$#" -ne 0 ]; do
-
-	  # -C, --close-from=num
-	  # -D, --chdir=directory
-	      # --preserve-env=list
-	  # -g, --group=group
-	  # -h, --host=host
-	  # -p, --prompt=prompt
-	  # -R, --chroot=directory
-	  # -T, --command-timeout=timeout
-	  # -U, --other-user=user
-	  # -u, --user=user
-	_sudo_arg_i=''
-
 	case $1 in
-		*=*) export "$1";;
 		--) shift; break;;
-		--bell) _sudo_arg_i='-b';;
-		
-		*)_sudo_arg_i=$1; ##TODO: :: RM THIS LINE ASAP :: :TODO
-	esac
-
-	case $_sudo_arg_i in
-		
-		-*)
-			_sudo_arg_i=${1%%[CDghpRTUu]*} # get valuae of options that reguire argument
-			_sudo_arg_val=${1#"$i"}
-		;;
-#		*) err "Error parsing '$1', _sudo_arg_i='$_sudo_arg_i'";;
-	esac
-
-
-	# if [ "$_sudo_arg_val" = '' ] || cate
-
-
-
-	case $_sudo_arg_i in
 
 		-A) _sudo_askpass=$SUDO_ASKPASS; [ -z "$_sudo_askpass" ] && err "no askpass program specified, try setting SUDO_ASKPASS" 1;;
 		# used $SUDO_ASKPASS from env? never tested?
