@@ -1,16 +1,17 @@
 #!/bin/sh
-set -eu
+
+set -u
 
 export SUDO_USER=${USER:-$(id -un)} SUDO_UID=${EUID:-$(id -u)} SUDO_GID=${GROUPS:-$(id -g)}
 export SUDO_COMMAND=$@
 
 # declare vars in safe way, exit if is in export
 var() {
-      if ( set -u; eval ": \${$1}" 2>&- ); then
-              exit 100
-      else
-              eval "$1=${2:-''}"
-      fi
+	if ( set -u; eval ": \${$1}" 2>&- ); then
+		exit 100
+	else
+		eval "$1=${2:-''}"
+	fi
 }
 
 var _sudo_askpass
@@ -22,10 +23,12 @@ var _sudo_background
 var _sudo_bell
 var _sudo_chdir
 
+var _sudo_to_exit
+var _sudo_to_usage
 
 err() {
 	printf '%s\n' "$1"
-	[ "${2:-0}" != 0 ] && _sudo_to_exit="${2:-1}" 
+	[ -n "$2" ] && [ "$2" != 0 ] && _sudo_to_exit="${2:-1}" 
 	# the reason it to print alot error messages
 	# and then exit with wast err_code (not 0)
 }
@@ -33,20 +36,10 @@ err() {
 while [ "$#" -ne 0 ]; do
 	case $1 in
 		--) shift; break;;
-
-		-A) _sudo_askpass=$SUDO_ASKPASS; [ -z "$_sudo_askpass" ] && err "no askpass program specified, try setting SUDO_ASKPASS" 1;;
-		# used $SUDO_ASKPASS from env? never tested?
-
-		-B|--bell) _sudo_bell='\a';; # todo : add to begining in prompt
-		# it assumes that password aways will be neded, exept for root,
-		#  password is not neede for Android su, however there is no easy way to detect if pass will be neede
-
+		-A) _sudo_askpass=$SUDO_ASKPASS; [ -z "$_sudo_askpass" ] && err "no askpass program specified, try setting SUDO_ASKPASS" 1;; # used $SUDO_ASKPASS from env
+		# -B|--bell) _sudo_bell='\a';;
 		# -C, --close-from=num   # todo: wut
-
-		-D*)_sudo_chdir="${1#-D}";;
-		--chdir=*) _sudo_chdir="${1#--chdir}";;
-		# 9/10 - by most default sudoers config  -D is not alowed for user? # todo further check if true 
-
+		-D*)_sudo_chdir="${1#-D}";; --chdir=*) _sudo_chdir="${1#--chdir}";;   # 9/10 - by most default sudoers config  -D is not alowed for user? # todo further check if true 
 		# -E|--preserve-env) ;; # MUST HAVE, now is like it is passed -E
 		
 		
@@ -59,15 +52,12 @@ while [ "$#" -ne 0 ]; do
 		-i) _sudo_login=-l;;
 		-s) _sudo_shell=1;;
 		-b) _sudo_background='&';;
-
 		-h|--help) _sudo_to_usage=long-message;;
-
 		-*) echo 1>&2 "sudo: not supported option option: $1"; _sudo_to_exit=1;;
 		*=*) export "$1";;
 		*) break;;
 	esac
 	shift
-#	arg "$@"
 done
 
 # case $_sudo_to_usage in
@@ -98,9 +88,11 @@ printf "$_sudo_bell" >/dev/tty
 	# cd "$_sudo_chdir"  # shoud not  WHEN [ -n "$_sudo_login$_sudo_shell" ] && [ "$#" -eq 0 ]
 
 	# expected "su" to read passwrod from stdin by default,  not tested on all platforms
+	# bug: 'Password:' prompt will be outputed to STDERR not /dev/tty, micro will not prompt
+	# bug: I/O /dev/tty in invoked command will fail ""
 
 	# ${_sudo_login:+"$_sudo_login"} -> dont risk IFS to include '-l'
-if [ "$SUDO_UID" -eq 0 ] && [ "$_sudo_user" = root ]; then
+if [ "$SUDO_UID" -eq 0 ] && [ "$_sudo_user" = root ] || [ "$SUDO_USER" = "$_sudo_user" ]  &&false; then
 	eval 'exec "$@"'" $_sudo_background"
 	# todo: checking for  _sudo_login/_sudo_shell
 
@@ -112,7 +104,7 @@ elif [ "$_sudo_stdin" -eq 1 ]; then
 	fi
 else
 	if [ -n "$_sudo_login" ]; then
-		err \!" _sudo_login withot stdin" 3
+		err '! _sudo_login withot stdin' 3
 		# todo:$_sudo_background ?
 		# exec su ${_sudo_login:+"$_sudo_login"} -c 'cd "$0" && exec <&3 "${SHELL:-/bin/sh}"' -- "$_sudo_user" "$_sudo_chdir" 3<&0 </dev/tty
 	elif [ -n "$_sudo_shell" ]; then
@@ -121,12 +113,12 @@ else
 	else
 		# exec su -c 'cd "$0" && exec 0<&9 2>&9 "$@"'" $_sudo_background" -- "$_sudo_user" "$_sudo_chdir" "$@" 9<&0 0</dev/tty 9>&2 2>/dev/tty
 # TODO $_sudo_chdir
-# TODO $_sudo_askpass
 		# use su-cmd-shell in case of error message
 		# exec su -c '"$@"'" $_sudo_background" -- "$_sudo_user" "su-cmd-shell" "$@"
-		exec su -c 'exec "$@"  0<&9 1>&8 2>&7  9>&- 8>&- 7>&-'"  $_sudo_background ; exit # " -- "$_sudo_user" "su-cmd-shell" "$@"  9<&0 8>&1 7>&2  0</dev/tty 1>/dev/tty 2>/dev/tty 
+		exec su -c '"$@" 0<&9 1>&8 2>&7'" ${_sudo_background:+&}" -- "$_sudo_user" "su-cmd-shell" "$@" 9<&0 8>&1 7>&2  0</dev/tty 1>/dev/tty 2>/dev/tty
+		echo old is exec su -c '"$@" 0<&9 1>&8 2>&9'" ${_sudo_background:+&}" -- "$_sudo_user" "su-cmd-shell" "$@" 9<&0 0</dev/tty  9>&1 8>&1 9>&2  1>/dev/tty 2>/dev/tty
 	fi
-	# exec su -c 'if [ "$SHELL" = "$0" ]; then cd "$1";shift;else cd "$0"; fi ; exec <&3 "$@"' "$_sudo_user" -- "$_sudo_chdir" "$@" 3<&0 </dev/tty
+	# exec su -c 'if [ "$SHELL" = "$0" ]; then cd "$1";shift;else cd "$0" && fi ; exec <&3 "$@"' "$_sudo_user" -- "$_sudo_chdir" "$@" 3<&0 </dev/tty
 fi
 
 
