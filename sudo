@@ -1,63 +1,192 @@
 #!/bin/sh
+set -feu
 
-set -u
 
-export SUDO_USER=${USER:-$(id -un)} SUDO_UID=${EUID:-$(id -u)} SUDO_GID=${GROUPS:-$(id -g)}
-export SUDO_COMMAND=$@
 
-# declare vars in safe way, exit if is in export
-var() {
-	if ( set -u; eval ": \${$1}" 2>&- ); then
-		exit 100
-	else
-		eval "$1=${2:-''}"
-	fi
+export SUDO_COMMAND=$@ SUDO_USER=${USER:-$(id -un)} SUDO_UID=${EUID:-$(id -u)} SUDO_GID=${GROUPS:-$(id -g)}
+
+
+# safe check if var is NOT exported
+vars() {
+	for i; do
+		eval "if ( : \"\${${i}:?}\"; ); then return \$? ; else ${i}=''; fi "
+	done 1>/dev/null 2>/dev/null
 }
 
-var _sudo_askpass
-var _sudo_user root
-var _sudo_stdin 0
-var _sudo_login
-var _sudo_shell
-var _sudo_background
-var _sudo_bell
-var _sudo_chdir
+vars \
+	_sudo_askpass \
+	_sudo_user \
+	_sudo_stdin \
+	_sudo_login \
+	_sudo_shell \
+	_sudo_background \
+	_sudo_bell \
+	_sudo_chdir \
+	_sudo_to_exit \
+	_sudo_to_usage \
+	\
+	_sudo_arg_cur \
+	_sudo_arg_val \
+	 || exit
 
-var _sudo_to_exit
-var _sudo_to_usage
+
+
+_sudo_user=root
+_sudo_stdin=0
 
 err() {
-	printf '%s\n' "$1"
-	[ -n "$2" ] && [ "$2" != 0 ] && _sudo_to_exit="${2:-1}" 
+	printf '%s\n' "$1" >&2
+	[ "${2:-0}" != 0 ] || exit "${2:-1}" 
 	# the reason it to print alot error messages
 	# and then exit with wast err_code (not 0)
 }
 
+
+# todo: coasider rewrise: would it be better to iterate busing $(substr "$1" "$i" 1) through short args args
 while [ "$#" -ne 0 ]; do
+	_sudo_arg_cur=$1
+	unset _sudo_arg_val
+
+	# first convent short args to long args:
 	case $1 in
 		--) shift; break;;
-		-A) _sudo_askpass=$SUDO_ASKPASS; [ -z "$_sudo_askpass" ] && err "no askpass program specified, try setting SUDO_ASKPASS" 1;; # used $SUDO_ASKPASS from env
-		# -B|--bell) _sudo_bell='\a';;
-		# -C, --close-from=num   # todo: wut
-		-D*)_sudo_chdir="${1#-D}";; --chdir=*) _sudo_chdir="${1#--chdir}";;   # 9/10 - by most default sudoers config  -D is not alowed for user? # todo further check if true 
-		# -E|--preserve-env) ;; # MUST HAVE, now is like it is passed -E
+		-[CDghpRTUu]*-|*[CDghpRTUu]*) # if is not long arg, get only current short arg and sepanate it vanue (if any)
+			_sudo_arg_cur=${1%%[CDghpRTUu]*} # get valuae of options that reguire argument
+			_sudo_arg_val=${1#"$_sudo_arg_cur"}
+			[ "$_sudo_arg_val" != '' ] || { _sudo_arg_val=$2; shift; }
+			[ "$_sudo_arg_val" != '' ] || err "sudo: option requires an argument -- '$_sudo_arg_cur'" 1
+
+		;;
+		-[!-]*) ;; # when only short args
+		[!-]*=*)  export "$1"; continue;;
+		[!-]*) break;; # end of args?
+
+		###### GENERATED USING: sudo -h | sed -nEe 's/^  (-[^-]+), (--[^ =]+) .+/\2) _sudo_arg_cur=\1;;/p'
+		--askpass)          _sudo_arg_cur=-A;;
+		--background)       _sudo_arg_cur=-b;;
+		--bell)             _sudo_arg_cur=-B;;
+		--preserve-env)     _sudo_arg_cur=-E;;
+		--edit)             _sudo_arg_cur=-e;;
+		--set-home)         _sudo_arg_cur=-H;;
+		--help)             _sudo_arg_cur=-h;;
+		--login)            _sudo_arg_cur=-i;;
+		--remove-timestamp) _sudo_arg_cur=-K;;
+		--reset-timestamp)  _sudo_arg_cur=-k;;
+		--list)             _sudo_arg_cur=-l;;
+		--non-interactive)  _sudo_arg_cur=-n;;
+		--preserve-groups)  _sudo_arg_cur=-P;;
+		--stdin)            _sudo_arg_cur=-S;;
+		--shell)            _sudo_arg_cur=-s;;
+		--version)          _sudo_arg_cur=-V;;
+		--validate)         _sudo_arg_cur=-v;;
+		--*) # need to parse options with arg separately
+			case ${1#--} in
+				preserve-env|preserve-env=?*) ;; # we do not have a short option for this one
+				###### GENERATED USING: sudo -h  | sed -nEe 's/^  (-[^-]+), --([^ =]*)=[^ =]+ .+/\2|\2=?*) _sudo_arg_i=\1;;/p'
+				close-from|close-from=?*)           _sudo_arg_i=-C;;
+				chdir|chdir=?*)                     _sudo_arg_i=-D;;
+				group|group=?*)                     _sudo_arg_i=-g;;
+				host|host=?*)                       _sudo_arg_i=-h;;
+				prompt|prompt=?*)                   _sudo_arg_i=-p;;
+				chroot|chroot=?*)                   _sudo_arg_i=-R;;
+				command-timeout|command-timeout=?*) _sudo_arg_i=-T;;
+				other-user|other-user=?*)           _sudo_arg_i=-U;;
+				user|user=?*)                       _sudo_arg_i=-u;;
+
+				*) err "sudo: unrecognized option '$1'" 1;;
+			esac
+			case $1 in
+				*=*) _sudo_arg_val=${1#*=};;
+				*)
+					[ 2 -le $# ] || err "sudo: option '$1' requires an argument'" 1
+					_sudo_arg_val=$2
+					shift
+			esac
+		;;
+
 		
-		
-		-v) _sudo_to_exit=0;; # 9.9/10 - more check for rules?
-		-K) _sudo_to_exit=0;;
-		# -R) _sudo_chdir=$2; shift;; #  "sudo: you are not permitted to use the -R option with ..." ah sudo rules, todo some day
-		-u) _sudo_user=$2; shift;;
-		-S) _sudo_stdin=1;;
-		# -s) [ "$_sudo_login$_sudo_shell" = i ]] && { echo >&2 'sudo: you may not specify both the -i and -s options'; exit 1; }; _sudo_is=s;;
-		-i) _sudo_login=-l;;
-		-s) _sudo_shell=1;;
-		-b) _sudo_background='&';;
-		-h|--help) _sudo_to_usage=long-message;;
-		-*) echo 1>&2 "sudo: not supported option option: $1"; _sudo_to_exit=1;;
-		*=*) export "$1";;
-		*) break;;
+		# '') err ''
+		# *)
+
+
+
+
+		*) err "Error parsing '$1', args($#) left: $*" 111;;
 	esac
+
+	# if [ "$_sudo_arg_val" = '' ] || cate
+
+
+
+
+
+	# @ --askpass)          _sudo_arg_cur=-A;;
+	case ${_sudo_arg_cur:?} in -*A*) _sudo_askpass=$SUDO_ASKPASS; [ "${SUDO_ASKPASS:-}" != '' ] || err "no askpass program specified, try setting SUDO_ASKPASS" 1; esac
+															# used $SUDO_ASKPASS from env? never tested?
+	# it assumes that password aways will be neded, exept for root,
+	#  password is not neede for Android/MagiskSU, however there is no easy way to detect if pass will be needed
+
+	# @ --background)       _sudo_arg_cur=-b;;
+	case $_sudo_arg_cur in -*b*) _sudo_background='&'; esac
+	# @ --bell)             _sudo_arg_cur=-B;;
+	case $_sudo_arg_cur in -*B*) _sudo_bell='\a'; esac # todo : add to begining in prompt
+	# @ --preserve-env)     _sudo_arg_cur=-E;;
+	# case $_sudo_arg_cur in -*E*) ;; # MUST HAVE, now is like it is passed -E; esac
+	# @ --edit)             _sudo_arg_cur=-e;;
+	# @ --set-home)         _sudo_arg_cur=-H;;
+	# @ --help)             _sudo_arg_cur=-h;;
+	# @ --login)            _sudo_arg_cur=-i;;
+	# @ --remove-timestamp) _sudo_arg_cur=-K;;
+	case $_sudo_arg_cur in -*K*) _sudo_unimplemented=1; esac
+	# @ --reset-timestamp)  _sudo_arg_cur=-k;;
+	# @ --list)             _sudo_arg_cur=-l;;
+	case $_sudo_arg_cur in -*i*) _sudo_login=-l; esac
+	# @ --non-interactive)  _sudo_arg_cur=-n;;
+	# @ --preserve-groups)  _sudo_arg_cur=-P;;
+	# @ --stdin)            _sudo_arg_cur=-S;;
+	case $_sudo_arg_cur in -*S*) _sudo_stdin=1; esac
+	# @ --shell)            _sudo_arg_cur=-s;;
+	case $_sudo_arg_cur in -*s*) _sudo_shell=1; esac
+	# case $_sudo_arg_cur in -*s*) [ "$_sudo_login$_sudo_shell" = i ]] && { echo >&2 'sudo: you may not specify both the -i and -s options'; exit 1; }; _sudo_is=s; esac
+	# @ --version)          _sudo_arg_cur=-V;;
+	# @ --validate)         _sudo_arg_cur=-v;;
+	case $_sudo_arg_cur in -*v*) _sudo_unimplemented=1_; esac # 9.9/10 - more check for rules?; esac
+
+
+
+	# REQIRES _sudo_arg_var:
+
+
+
+	# @ close-from|close-from=?*)           _sudo_arg_i=-C;;
+	# -C, --close-from=num   # todo: wut
+	# @ chdir|chdir=?*)                     _sudo_arg_i=-D;;
+	case $_sudo_arg_cur in -*D*) _sudo_chdir="$_sudo_arg_val"; esac
+	# 9/10 - by most default sudoers config  -D is not alowed for user? # todo further check if; true 
+	# @ group|group=?*)                     _sudo_arg_i=-g;;
+	# @ host|host=?*)                       _sudo_arg_i=-h;;
+	# case $_sudo_arg_cur in -*h*) _sudo_to_usage=long-message; esac
+	# @ prompt|prompt=?*)                   _sudo_arg_i=-p;;
+	# @ chroot|chroot=?*)                   _sudo_arg_i=-R;;
+	case $_sudo_arg_cur in -*R*) _sudo_unimplemented=1; esac #_sudo_chroot=$_sudo_arg_val; esac
+	#  "sudo: you are not permitted to use the -R option with ..." ah sudo rules, todo some day; esac esac
+	# @ command-timeout|command-timeout=?*) _sudo_arg_i=-T;;
+	# @ other-user|other-user=?*)           _sudo_arg_i=-U;;
+	# @ user|user=?*)                       _sudo_arg_i=-u;;
+	case $_sudo_arg_cur in -*u*) _sudo_user=$2; shift; esac # PLS work from the first time, pretty pls
+
+
+
+
+
+TODO CONTINUE HIRE ${dstndstndstndstndstn?}
+exit 123
+		# case $_sudo_arg_cur in -***) echo 1>&2 "sudo: not supported option option: $1"; _sudo_to_exit=1; esac
+		case $_sudo_arg_cur in *=*) export "$1"; esac
+		case $_sudo_arg_cur in *) break; esac
+	# esac
 	shift
+	arg "$@"
 done
 
 # case $_sudo_to_usage in
@@ -92,7 +221,7 @@ printf "$_sudo_bell" >/dev/tty
 	# bug: I/O /dev/tty in invoked command will fail ""
 
 	# ${_sudo_login:+"$_sudo_login"} -> dont risk IFS to include '-l'
-if [ "$SUDO_UID" -eq 0 ] && [ "$_sudo_user" = root ] || [ "$SUDO_USER" = "$_sudo_user" ]  &&false; then
+if [ "$SUDO_UID" -eq 0 ] && [ "$_sudo_user" = root ]; then
 	eval 'exec "$@"'" $_sudo_background"
 	# todo: checking for  _sudo_login/_sudo_shell
 
@@ -104,7 +233,7 @@ elif [ "$_sudo_stdin" -eq 1 ]; then
 	fi
 else
 	if [ -n "$_sudo_login" ]; then
-		err '! _sudo_login withot stdin' 3
+		err \!" _sudo_login withot stdin" 3
 		# todo:$_sudo_background ?
 		# exec su ${_sudo_login:+"$_sudo_login"} -c 'cd "$0" && exec <&3 "${SHELL:-/bin/sh}"' -- "$_sudo_user" "$_sudo_chdir" 3<&0 </dev/tty
 	elif [ -n "$_sudo_shell" ]; then
@@ -113,13 +242,10 @@ else
 	else
 		# exec su -c 'cd "$0" && exec 0<&9 2>&9 "$@"'" $_sudo_background" -- "$_sudo_user" "$_sudo_chdir" "$@" 9<&0 0</dev/tty 9>&2 2>/dev/tty
 # TODO $_sudo_chdir
+# TODO $_sudo_askpass
 		# use su-cmd-shell in case of error message
 		# exec su -c '"$@"'" $_sudo_background" -- "$_sudo_user" "su-cmd-shell" "$@"
-		exec su -c '"$@" 0<&9 1>&8 2>&7'" ${_sudo_background:+&}" -- "$_sudo_user" "su-cmd-shell" "$@" 9<&0 8>&1 7>&2  0</dev/tty 1>/dev/tty 2>/dev/tty
-		echo old is exec su -c '"$@" 0<&9 1>&8 2>&9'" ${_sudo_background:+&}" -- "$_sudo_user" "su-cmd-shell" "$@" 9<&0 0</dev/tty  9>&1 8>&1 9>&2  1>/dev/tty 2>/dev/tty
+		exec su -c 'exec "$@"  0<&9 1>&8 2>&7  9>&- 8>&- 7>&-'"  $_sudo_background ; exit # " -- "$_sudo_user" "su-cmd-shell" "$@"  9<&0 8>&1 7>&2  0</dev/tty 1>/dev/tty 2>/dev/tty 
 	fi
 	# exec su -c 'if [ "$SHELL" = "$0" ]; then cd "$1";shift;else cd "$0" && fi ; exec <&3 "$@"' "$_sudo_user" -- "$_sudo_chdir" "$@" 3<&0 </dev/tty
 fi
-
-
-# initual SOURCE: https://github.com/FydeOS-ArcHero/chromiumos_overlays_chromiumos-overlay/blob/fb0289fb5298fdb75a9984565bffe961f0af2295/chromeos-base/chromeos-base/files/sudo
