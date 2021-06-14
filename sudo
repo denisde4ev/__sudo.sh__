@@ -1,76 +1,116 @@
 #!/bin/sh
 
-# initual SOURCE: https://github.com/FydeOS-ArcHero/chromiumos_overlays_chromiumos-overlay/blob/fb0289fb5298fdb75a9984565bffe961f0af2295/chromeos-base/chromeos-base/files/sudo
+set -u
 
 export SUDO_USER=${USER:-$(id -un)} SUDO_UID=${EUID:-$(id -u)} SUDO_GID=${GROUPS:-$(id -g)}
-export SUDO_COMMAND="$@"
+export SUDO_COMMAND=$@
 
-_sudo_pwd=${PWD:-$(pwd)}
+_sudo_askpass=
 _sudo_user=root
 _sudo_stdin=0
 _sudo_login=
 _sudo_shell=
 _sudo_background=
+_sudo_bell=
+_sudo_chdir=
 
+_sudo_to_exit=
+_sudo_to_usage=
 
-while [ $# -ne 0 ]; do
+err() {
+	printf '%s\n' "$1"
+	[ -n "$2" ] && [ "$2" != 0 ] && _sudo_to_exit="${2:-1}"
+	# the reason it to print alot error messages
+	# and then exit with wast err_code (not 0)
+}
+
+while [ "$#" -ne 0 ]; do
 	case $1 in
-		-v) exit 1;; # error on asking --validate is this how it shoud work?
-		-K) exit 0;;
-		# -R) _sudo_pwd=$2; shift;; # COULD NOT TEST, every time I get "sudo: you are not permitted to use the -R option with ..."
+		--) shift; break;;
+		-A) _sudo_askpass=$SUDO_ASKPASS; [ -z "$_sudo_askpass" ] && err "no askpass program specified, try setting SUDO_ASKPASS" 1;; # used $SUDO_ASKPASS from env
+		# -B|--bell) _sudo_bell='\a';;
+		# -C, --close-from=num   # todo: wut
+		-D*)_sudo_chdir="${1#-D}";; --chdir=*) _sudo_chdir="${1#--chdir}";;   # 9/10 - by most default sudoers config  -D is not alowed for user? # todo further check if true
+		# -E|--preserve-env) ;; # MUST HAVE, now is like it is passed -E
+		
+		
+		-v) _sudo_to_exit=0;; # 9.9/10 - more check for rules?
+		-K) _sudo_to_exit=0;;
+		# -R) _sudo_chdir=$2; shift;; #  "sudo: you are not permitted to use the -R option with ..." ah sudo rules, todo some day
 		-u) _sudo_user=$2; shift;;
 		-S) _sudo_stdin=1;;
 		# -s) [ "$_sudo_login$_sudo_shell" = i ]] && { echo >&2 'sudo: you may not specify both the -i and -s options'; exit 1; }; _sudo_is=s;;
 		-i) _sudo_login=-l;;
 		-s) _sudo_shell=1;;
 		-b) _sudo_background='&';;
-		--) shift; break;;
-		-h|--help) printf >&2 '\E[1;33mTODO:\E[m %s\n' 'help message';;
-		-*) echo 1>&2 "sudo: not supported option option: $1"; exit 1;;
+		-h|--help) _sudo_to_usage=long-message;;
+		-*) echo 1>&2 "sudo: not supported option option: $1"; _sudo_to_exit=1;;
 		*=*) export "$1";;
 		*) break;;
 	esac
 	shift
 done
 
+# case $_sudo_to_usage in
+#	help) TODO help message;;
+#	usage) TODO 2-5 lies usage;;
+# esac
+
+[ -n "$_sudo_to_exit" ] && exit "$_sudo_to_exit"
+
 [ -n "$_sudo_shell" ] && [ -n "$_sudo_login" ] && {
 	echo >&2 'sudo: you may not specify both the -i and -s options'
-	printf >&2 '\E[1;33mTODO:\E[m %s\n' 'usage help message'
+	# TODO usage help message
 	exit 1
 }
 
-[ $# -eq 0 ] && [ -z "$_sudo_login$_sudo_shell" ] && {
-	printf >&2 '\E[1;33mTODO:\E[m %s\n' 'usage help message'
-	exit $?
+[ "$#" -eq 0 ] && [ -z "$_sudo_login$_sudo_shell" ] && {
+	echo TODO usage help message
+	exit 1
 }
 
+printf "$_sudo_bell" >/dev/tty
+# [ -t 2 ] || printf 'Password: ' >/dev/tty # todo: better way
 
-	# cd "$_sudo_pwd"  # shoud not  WHEN [ -n "$_sudo_login$_sudo_shell" ] && [ $# -eq 0 ]
+: ${_sudo_chdir:=${PWD:-$(pwd)}}
+: ${_sudo_user:=root}
+# print 'Password: ' to tty in case /dev/stderr is redirected
+
+	# cd "$_sudo_chdir"  # shoud not  WHEN [ -n "$_sudo_login$_sudo_shell" ] && [ "$#" -eq 0 ]
 
 	# expected "su" to read passwrod from stdin by default,  not tested on all platforms
 	# bug: 'Password:' prompt will be outputed to STDERR not /dev/tty, micro will not prompt
 	# bug: I/O /dev/tty in invoked command will fail ""
 
 	# ${_sudo_login:+"$_sudo_login"} -> dont risk IFS to include '-l'
-if [ "$SUDO_UID" -eq 0 ] && [ "$_sudo_user" = root ]; then
+if [ "$SUDO_UID" -eq 0 ] && [ "$_sudo_user" = root ] || [ "$SUDO_USER" = "$_sudo_user" ]  &&false; then
 	eval 'exec "$@"'" $_sudo_background"
+	# todo: checking for  _sudo_login/_sudo_shell
 
 elif [ "$_sudo_stdin" -eq 1 ]; then
 	if [ -n "$_sudo_login$_sudo_shell" ]; then
-		arg exec su ${_sudo_login:+"$_sudo_login"} -- "${_sudo_user:-root}"
+		exec su ${_sudo_login:+"$_sudo_login"} -- "$_sudo_user"
 	else
-		exec su -c 'cd "$0"; exec     "$@"'" $_sudo_background" -- "${_sudo_user:-root}" "$_sudo_pwd" "$@"
+		exec su -c 'cd "$0" && exec     "$@"'" $_sudo_background" -- "$_sudo_user" "$_sudo_chdir" "$@"
 	fi
 else
 	if [ -n "$_sudo_login" ]; then
-		TODO not done
+		err '! _sudo_login withot stdin' 3
 		# todo:$_sudo_background ?
-		exec su ${_sudo_login:+"$_sudo_login"} -c 'cd "$0"; exec <&3 "${SHELL:-/bin/sh}"' -- "${_sudo_user:-root}" "$_sudo_pwd" 3<&0 </dev/tty
+		# exec su ${_sudo_login:+"$_sudo_login"} -c 'cd "$0" && exec <&3 "${SHELL:-/bin/sh}"' -- "$_sudo_user" "$_sudo_chdir" 3<&0 </dev/tty
 	elif [ -n "$_sudo_shell" ]; then
-		TODO not done
-		exec su ${_sudo_login:+"$_sudo_login"} -c 'cd "$0"; exec <&3 "${SHELL:-/bin/sh}"' -- "${_sudo_user:-root}" "$_sudo_pwd" 3<&0 </dev/tty
+		# TODO not done
+		exec su ${_sudo_login:+"$_sudo_login"} -c 'cd "$0" && exec 0<&9 1>&9 "${SHELL:-/bin/sh}"' -- "$_sudo_user" "$_sudo_chdir" 9<&0 0</dev/tty 9>&1 1>/dev/tty
 	else
-		exec su -c 'cd "$0"; exec <&3 "$@"'" $_sudo_background" -- "${_sudo_user:-root}" "$_sudo_pwd" "$@" 3<&0 </dev/tty
+		# exec su -c 'cd "$0" && exec 0<&9 2>&9 "$@"'" $_sudo_background" -- "$_sudo_user" "$_sudo_chdir" "$@" 9<&0 0</dev/tty 9>&2 2>/dev/tty
+# TODO $_sudo_chdir
+		# use su-cmd-shell in case of error message
+		# exec su -c '"$@"'" $_sudo_background" -- "$_sudo_user" "su-cmd-shell" "$@"
+		exec su -c '"$@" 0<&9 1>&8 2>&7'" ${_sudo_background:+&}" -- "$_sudo_user" "su-cmd-shell" "$@" 9<&0 8>&1 7>&2  0</dev/tty 1>/dev/tty 2>/dev/tty
+		echo old is exec su -c '"$@" 0<&9 1>&8 2>&9'" ${_sudo_background:+&}" -- "$_sudo_user" "su-cmd-shell" "$@" 9<&0 0</dev/tty  9>&1 8>&1 9>&2  1>/dev/tty 2>/dev/tty
 	fi
-	# exec su -c 'if [ "$SHELL" = "$0" ]; then cd "$1";shift;else cd "$0";fi ; exec <&3 "$@"' "${_sudo_user:-root}" -- "$_sudo_pwd" "$@" 3<&0 </dev/tty
+	# exec su -c 'if [ "$SHELL" = "$0" ]; then cd "$1";shift;else cd "$0"; fi ; exec <&3 "$@"' "$_sudo_user" -- "$_sudo_chdir" "$@" 3<&0 </dev/tty
 fi
+
+
+# initual SOURCE: https://github.com/FydeOS-ArcHero/chromiumos_overlays_chromiumos-overlay/blob/fb0289fb5298fdb75a9984565bffe961f0af2295/chromeos-base/chromeos-base/files/sudo
