@@ -4,16 +4,23 @@ set -eu
 export SUDO_USER=${USER:-$(id -un)} SUDO_UID=${EUID:-$(id -u)} SUDO_GID=${GROUPS:-$(id -g)}
 export SUDO_COMMAND=$@
 
-_sudo_askpass=
-_sudo_user=root
-_sudo_stdin=0
-_sudo_login=
-_sudo_shell=
-_sudo_background=
-_sudo_bell=
-_sudo_chdir=
-_sudo_to_exit=
-_sudo_to_usage=
+# declare vars in safe way, exit if is in export
+var() {
+      if ( set -u; eval ": \${$1}" 2>&- ); then
+              exit 100
+      else
+              eval "$1=${2:-''}"
+      fi
+}
+
+var _sudo_askpass
+var _sudo_user root
+var _sudo_stdin 0
+var _sudo_login
+var _sudo_shell
+var _sudo_background
+var _sudo_bell
+var _sudo_chdir
 
 
 err() {
