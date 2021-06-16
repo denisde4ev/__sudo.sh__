@@ -15,8 +15,10 @@ vars() {
 
 vars \
 	_sudo_askpass \
+	\
 	_sudo_user \
 	_sudo_stdin \
+	\
 	_sudo_login \
 	_sudo_shell \
 	_sudo_background \
@@ -26,6 +28,7 @@ vars \
 	_sudo_to_usage \
 	\
 	_sudo_arg_cur \
+	_sudo_arg_key \
 	_sudo_arg_val \
 	 || exit
 
@@ -35,7 +38,7 @@ _sudo_user=root
 _sudo_stdin=0
 
 err() {
-	printf '%s\n' "$1" >&2
+	printf '%s\n' "${0##*/}: $1" >&2
 	[ "${2:-0}" != 0 ] || exit "${2:-1}" 
 	# the reason it to print alot error messages
 	# and then exit with wast err_code (not 0)
@@ -44,18 +47,41 @@ err() {
 
 # todo: coasider rewrise: would it be better to iterate busing $(substr "$1" "$i" 1) through short args args
 while [ "$#" -ne 0 ]; do
-	_sudo_arg_cur=$1
+	_sudo_arg_cur=$1 # should not be needed, just in case
+	unset _sudo_arg_key
 	unset _sudo_arg_val
 
 	# first convent short args to long args:
+
 	case $1 in
 		--) shift; break;;
-		-[CDghpRTUu]*-|*[CDghpRTUu]*) # if is not long arg, get only current short arg and sepanate it vanue (if any)
-			_sudo_arg_cur=${1%%[CDghpRTUu]*} # get valuae of options that reguire argument
-			_sudo_arg_val=${1#"$_sudo_arg_cur"}
-			[ "$_sudo_arg_val" != '' ] || { _sudo_arg_val=$2; shift; }
-			[ "$_sudo_arg_val" != '' ] || err "sudo: option requires an argument -- '$_sudo_arg_cur'" 1
+		-[CDghpRTUu]*|-[!-]*[CDghpRTUu]*)
+		# if is not long arg, get only current short arg and sepanate its vanue
+			# get valuae of options that reguire argument
 
+			_sudo_arg_cur=${1%%[CDghpRTUu]*}
+			_sudo_arg_val=${1#"$_sudo_arg_cur"?}
+			_sudo_arg_key=${1#"$_sudo_arg_cur"};_sudo_arg_key=${_sudo_arg_key%"$_sudo_arg_val"}  # uf...
+			# I will not even try to explain those lines
+			# when it brakes just rewrite it
+			# ALTERNATIVE CODE:
+			# _sudo_arg_cur=${1%%[CDghpRTUu]*}
+			# _sudo_arg_val=${1#"$_sudo_arg_cur"} # tmp include key in val '-vuUSER' => val=uUSER
+			# _sudo_arg_key=${_sudo_arg_val%"${_sudo_arg_val#?}"}  # uf...
+			# _sudo_arg_val=${_sudo_arg_val#"$_sudo_arg_key"}
+
+			case $_sudo_arg_key in [CDghpRTUu]) true;; *) false; esac \
+			&& [ "$1" = "$_sudo_arg_cur$_sudo_arg_key$_sudo_arg_val" ] \
+			|| err "error parsing arguments in -- '${1:-}'" 2
+
+
+
+			[ "$_sudo_arg_val" != '' ] || {
+				[ 2 -le $# ] \
+				&& _sudo_arg_val=${2:?} \
+				&& shift \
+				|| err "option requires an argument -- '$1' "
+			}
 		;;
 		-[!-]*) ;; # when only short args
 		[!-]*=*)  export "$1"; continue;;
@@ -154,7 +180,7 @@ while [ "$#" -ne 0 ]; do
 
 
 
-	# REQIRES _sudo_arg_var:
+	# REQIRES _sudo_arg_val:
 
 
 
