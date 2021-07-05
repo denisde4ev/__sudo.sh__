@@ -2,7 +2,7 @@
 set -feu
 
 export SUDO_COMMAND="$*" SUDO_USER SUDO_UID SUDO_GID
-SUDO_USER=${USER:-$(id -un)}
+SUDO_USER=${USER:-$(id -un)} # TODO: name in not changed when using (su) no with args
 SUDO_UID=${EUID:-$(id -u)}
 SUDO_GID=${GROUPS:-$(id -g)}
 
@@ -11,8 +11,8 @@ err() {
 	exit "${2:-1}" 
 }
 
-_sudo_arg_val() {
-	[ "$_sudo_arg_val" != '' ] || err "empty value for $1 not allowed"
+nonempty() {
+	[ "$1" != '' ] || err "empty value for $2 not allowed"
 }
 
 # safe check if var is NOT exported
@@ -78,7 +78,7 @@ while [ "$#" -ne 0 ]; do
 
 	case $1 in
 		--) shift; break;;
-		[!-]*=*) _sudo_env_vars=1; export "$1"; continue;;
+		[!-]*=*) _sudo_env_vars=1; export "$1"; shift; continue;;
 		[!-]*) break;; # end of args?
 
 		-[CDghpRTUu]*|-[!-]*[CDghpRTUu]*)
@@ -165,7 +165,7 @@ while [ "$#" -ne 0 ]; do
 
 		*) err "Error parsing '$1', args($#) left: $*" 111;;
 	esac
-	
+
 #(
 #exit 0 # now no need to debug
 #set -x # easy way to deug
@@ -188,7 +188,7 @@ while [ "$#" -ne 0 ]; do
 			D) _sudo_chdir="$_sudo_arg_val";;
 			# 9/10 - by most default sudoers config  -D is not alowed for user? # todo further check if; true 
 			# @ group|group=?*)                     _sudo_arg_key=g;;
-			g) _sudo_group="$_sudo_arg_val"; _sudo_arg_val group;;
+			g) _sudo_group="$_sudo_arg_val"; nonempty "$_sudo_group" group;;
 			# @ host|host=?*)                       _sudo_arg_key=h;;
 			# @ prompt|prompt=?*)                   _sudo_arg_key=p;;
 			# @ chroot|chroot=?*)                   _sudo_arg_key=R;;
@@ -197,7 +197,7 @@ while [ "$#" -ne 0 ]; do
 			# @ command-timeout|command-timeout=?*) _sudo_arg_key=T;;
 			# @ other-user|other-user=?*)           _sudo_arg_key=U;;
 			# @ user|user=?*)                       _sudo_arg_key=u;;
-			u) _sudo_user=$_sudo_arg_val; _sudo_arg_val name;; # PLS work from the first time, pretty pls
+			u) _sudo_user=$_sudo_arg_val; nonempty "$_sudo_user" name;; # PLS work from the first time, pretty pls
 			*) err "err, unimplemented option -- '$_sudo_arg_key'";;
 		esac
 	fi
@@ -286,13 +286,14 @@ if [ "$_sudo_opts" != '' ]; then
 		_sudo_shell=1
 	esac
 	# @ --version)          _sudo_opts=V;;
-	case $_sudo_opts in *i*) err "err, unimplemented option -- 'i'";esac
+	case $_sudo_opts in *V*) err "err, unimplemented option -- 'V'";esac
 	# @ --validate)         _sudo_opts=v;;
 	case $_sudo_opts in *v*) err "err, unimplemented option -- 'v'";esac
 fi
 
 #echo  $_sudo_help
 [ "$_sudo_help" = '' ] || {
+	# TODO TEST IF SUDO -g REALLY USES ID 
 	printf %s\\n \
 		"sudo - execute a command as another user"\
 		""\
@@ -341,23 +342,17 @@ fi
 	exit 1
 }
 
-[ "$#" -eq 0 ] && [ "$_sudo_login$_sudo_shell" = '' ] && {
-	echo TODO usage help message-
-	exit 1
-}
 
-# is tty used in real sudo for the bell
-printf %b "${_sudo_bell:+BELL\\n}" >/dev/tty 
 
 [ "$_sudo_chdir" != '' ] || _sudo_chdir=${PWD:-$(pwd)}
 
-	# cd "$_sudo_chdir"  # shoud not  WHEN [ -n "$_sudo_login$_sudo_shell" ] && [ "$#" -eq 0 ]
+# cd "$_sudo_chdir"  # shoud not  WHEN [ "$_sudo_login$_sudo_shell" != '' ] && [ "$#" -eq 0 ]
 
-	# expected "su" to read passwrod from stdin by default,  not tested on all platforms
-	# bug: I/O /dev/tty in invoked command will fail "" . Should it test if /dev/tty is r/w-able?
+# expected "su" to read passwrod from stdin by default,  not tested on all platforms?
 
 
 if [ "$_sudo_user" != root ]; then
+	# id would accept IDs .. who would have thought
 	case $_sudo_user in *[!0-9]*) true;; *) false; esac \
 	&& _sudo_tmp=$(id -un -- "$_sudo_user" 2>&-) \
 	|| err "unknown user: $_sudo_user"
@@ -370,10 +365,14 @@ if [ "$_sudo_user" != root ]; then
 	;
 fi
 
-if [ "$_sudo_group" != '' ]; then
-	command -v __getent >/dev/null \
+# just validate that the user is in the group
+if [ "$_sudo_group" != '' ]; then 
+	command -v getent >/dev/null \
 	&& _sudo_tmp=$(getent -- group "$_sudo_group") \
-	|| _sudo_tmp=$(cut -d : -f 1 "${PREFIX:-}"/etc/group | tr $'\n' :)
+	|| _sudo_tmp=$(cat "${PREFIX:-}"/etc/group)
+
+	_sudo_tmp=$(printf %s\\n "$_sudo_tmp" | cut -d : -f 1  | tr $'\n' :)
+	_sudo_tmp="${_sudo_tmp%"${_sudo_tmp##*[!:]}"}" # trim end form multiple ':'
 
 	case ":$_sudo_tmp" in
 		*:"$_sudo_group":*)
@@ -384,8 +383,8 @@ if [ "$_sudo_group" != '' ]; then
 						"Sorry, user $SUDO_USER" \
 						" is not allowed to execute '$1'" \
 						" as $_sudo_user:$_sudo_group" \
-						" on ${NAME:-$(hostname)}."
-						# in $NAME hostname for all distros that use it, todo check?
+						" on ${NAME:-$(hostname)}." \
+					;	# is $NAME hostname for all distros that use it, todo check?
 					echo
 					exit 1
 				;;
@@ -396,10 +395,14 @@ if [ "$_sudo_group" != '' ]; then
 	esac
 fi
 
+[ "$SUDO_UID" -eq 0 ] || { # when not root, expected password to be needed. ring the bell:
+	# is tty used in real sudo for the bell
+	# "BELL\n" IS ONLY FOR TEST:
+	printf %b "${_sudo_bell:+BELL\\n}" >/dev/tty 
 
-
-if [ "$SUDO_UID" -eq 0 ] && [ "$_sudo_user" = "$SUDO" ]; then
-	eval 'exec "$@"'" $_sudo_background"
+}
+if [ "$SUDO_UID" -eq 0 ] && [ "$_sudo_user" = "$SUDO_USER" ]; then
+	eval 'exec "$@" '" $_sudo_background"
 	# todo: checking for  _sudo_login/_sudo_shell
 elif [ "$_sudo_non_interactive" = 1 ]; then
 	err 'a password is required'
@@ -407,26 +410,46 @@ elif [ "$_sudo_stdin" = 1 ]; then
 	if [ -n "$_sudo_login$_sudo_shell" ]; then
 		exec su ${_sudo_login:+"$_sudo_login"} -- "$_sudo_user"
 	else
-		exec su -c 'cd "$0" && exec     "$@"'" $_sudo_background" -- "$_sudo_user" "$_sudo_chdir" "$@"
+		exec su \
+			-c 'cd "$0" && exec     "$@"'" $_sudo_background" \
+			-- "$_sudo_user" "$_sudo_chdir" "$@" \
+		;
 	fi
 else
 	if [ -n "$_sudo_login" ]; then
-		err \!" _sudo_login withot stdin" 3
 		# todo:$_sudo_background ?
-		# exec su ${_sudo_login:+"$_sudo_login"} -c 'cd "$0" && exec <&3 "${SHELL:-/bin/sh}"' -- "$_sudo_user" "$_sudo_chdir" 3<&0 </dev/tty
+		exec su ${_sudo_login:+"$_sudo_login"} \
+			-c 'cd "$0" && exec <&3 "${SHELL:-/bin/sh}"' \
+			-- "$_sudo_user" "$_sudo_chdir" 3<&0 </dev/tty \
+		;
 	elif [ -n "$_sudo_shell" ]; then
 		# TODO not done
-		exec su ${_sudo_login:+"$_sudo_login"} -c 'cd "$0" && exec 0<&9 1>&9 "${SHELL:-/bin/sh}"' -- "$_sudo_user" "$_sudo_chdir" 9<&0 0</dev/tty 9>&1 1>/dev/tty
+		exec su ${_sudo_login:+"$_sudo_login"} \
+			-c 'cd "$0" && exec 0<&9 1>&9 "${SHELL:-/bin/sh}" # ' \
+			-- "$_sudo_user" "$_sudo_chdir" 9<&0 0</dev/tty 9>&1 1>/dev/tty \
+		;
 	else
-		# exec su -c 'cd "$0" && exec 0<&9 2>&9 "$@"'" $_sudo_background" -- "$_sudo_user" "$_sudo_chdir" "$@" 9<&0 0</dev/tty 9>&2 2>/dev/tty
+		# exec su \
+			# -c 'cd "$0" && exec 0<&9 2>&9 "$@"'" $_sudo_background" \
+			# -- "$_sudo_user" "$_sudo_chdir" "$@" 9<&0 0</dev/tty 9>&2 2>/dev/tty \
+		# ;
 # TODO $_sudo_chdir
 # TODO $_sudo_askpass
 		# use su-cmd-shell in case of error message
 		# exec su -c '"$@"'" $_sudo_background" -- "$_sudo_user" "su-cmd-shell" "$@"
-		exec su -c 'exec "$@"  0<&9 1>&8 2>&7  9>&- 8>&- 7>&-'"  $_sudo_background ; exit # " -- "$_sudo_user" "su-cmd-shell" "$@"  9<&0 8>&1 7>&2  0</dev/tty 1>/dev/tty 2>/dev/tty 
+		exec su \
+			-c 'exec "$@"  0<&9 1>&8 2>&7  9>&- 8>&- 7>&-'"  ${_sudo_background:-;} exit # " \
+			-- "$_sudo_user" "su-cmd-shell" "$@"  9<&0 8>&1 7>&2  0</dev/tty 1>/dev/tty 2>/dev/tty \
+		;
 	fi
-	# exec su -c 'if [ "$SHELL" = "$0" ]; then cd "$1";shift;else cd "$0" && fi ; exec <&3 "$@"' "$_sudo_user" -- "$_sudo_chdir" "$@" 3<&0 </dev/tty
+	# exec su \
+		# -c '
+			# if [ "$SHELL" = "$0" ];
+			# then cd "$1";shift;else cd "$0" && 
+			# fi ; exec <&3 "$@"
+		# ' "$_sudo_user" \
+		# -- "$_sudo_chdir" "$@" 3<&0 </dev/tty \
+	# ;
 fi
 
-
-# print 'Password: ' to tty in case /dev/stderr is redirected
+# prints su's output "Password: " to tty in case /dev/stderr is redirected (micro editor using sucmd)
