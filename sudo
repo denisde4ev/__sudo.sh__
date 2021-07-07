@@ -8,7 +8,7 @@ SUDO_GID=${GROUPS:-$(id -g)}
 
 err() {
 	printf '%s\n' "${0##*/}: $1" >&2
-	exit "${2:-1}" 
+	[ "$2" != 0] && exit "${2:-1}" 
 }
 
 nonempty() {
@@ -23,10 +23,6 @@ vars() {
 	done 2>/dev/null 2>/dev/null
 }
 
-
-
-# vars a a || exit $?
-# exit 0
 ## some GENERATED USING: sudo -h  | sed -nEe '/^  -[^-]+/ { s/.*--([^ =]+).*/_sudo_\1 \\/; s/-/_/; p; }'
 vars \
 	_sudo_askpass \
@@ -132,7 +128,7 @@ while [ "$#" -ne 0 ]; do
 		--shell)            _sudo_opts=s$_sudo_opts;;
 		--version)          _sudo_opts=V$_sudo_opts;;
 		--validate)         _sudo_opts=v$_sudo_opts;;
-		--*) # need to parse options with arg separately
+		--*) # options with arguments:
 			case ${1#"--"} in
 				# todo what option what should do when is empty (--user='')
 				preserve-env=*) err "err, unimplemented option -- '${1%%=*}'" ; sudo_arg_val=;; # ony value when has '=' 
@@ -149,6 +145,8 @@ while [ "$#" -ne 0 ]; do
 
 				*) err "unrecognized option '$1'";;
 			esac
+
+			# test if _sudo_arg_val is unset vairamle , (not just '' -> null)
 			( : "$_sudo_arg_val" ) 2>/dev/null || case $1 in
 				*=*) _sudo_arg_val=${1#*=};;
 				*)
@@ -186,7 +184,8 @@ while [ "$#" -ne 0 ]; do
 			# -C, --close-from=num   # todo: wut
 			# @ chdir|chdir=?*)                     _sudo_arg_key=D;;
 			D) _sudo_chdir="$_sudo_arg_val";;
-			# 9/10 - by most default sudoers config  -D is not alowed for user? # todo further check if; true 
+			# by most default sudoers config  -D is not alowed for user? # todo further check if; true 
+
 			# @ group|group=?*)                     _sudo_arg_key=g;;
 			g) _sudo_group="$_sudo_arg_val"; nonempty "$_sudo_group" group;;
 			# @ host|host=?*)                       _sudo_arg_key=h;;
@@ -197,7 +196,7 @@ while [ "$#" -ne 0 ]; do
 			# @ command-timeout|command-timeout=?*) _sudo_arg_key=T;;
 			# @ other-user|other-user=?*)           _sudo_arg_key=U;;
 			# @ user|user=?*)                       _sudo_arg_key=u;;
-			u) _sudo_user=$_sudo_arg_val; nonempty "$_sudo_user" name;; # PLS work from the first time, pretty pls
+			u) _sudo_user=$_sudo_arg_val; nonempty "$_sudo_user" name;;
 			*) err "err, unimplemented option -- '$_sudo_arg_key'";;
 		esac
 	fi
@@ -216,26 +215,40 @@ done
 
 
 if [ "$_sudo_opts" != '' ]; then
-	# TODO: parse invalid options
+
+	case $_sudo_opts in # TODO: TEST ME all:
+		*A*S*|*S*A*) err 'the -A and -S options may not be used together';;
+		*D*) err 'you are not permitted to use the -D option with';; # todo ?
+		*i*E*|*E*i*) err 'you may not specify both the -i and -E options';;
+		*i*s*|*s*i*) err 'you may not specify both the -i and -s options';;
+
+		
+		*U*)
+			case $_sudo_opts in
+				*l*) ;;
+				*) err 'the -U option may only be used with the -l option';;
+			esac
+		;;
+	esac
 
 
-
-	: TODO : <<- TODO
-		the -A and -S options may not be used together
-		Only one of the -e, -h, -i, -K, -l, -s, -v or -V options may be specified
-		the -U option may only be used with the -l option
+	: grep -v '#' : <<- TODO
+		# the -A and -S options may not be used together
+		# Only one of the -e, -h, -i, -K, -l, -s, -v or -V options may be specified
+		# the -U option may only be used with the -l option
 		the argument to -C must be a number greater than or equal to 3
-		you are not permitted to use the -D option with
-		you may not specify both the -i and -E options
+		# you are not permitted to use the -D option with
+		#you may not specify both the -i and -E options
 		
 	TODO
 
 	
 	# @ --askpass)          _sudo_opts=A;;
-	case ${_sudo_opts:?} in *A*)
+	case $_sudo_opts in *A*)
 		[ "${SUDO_ASKPASS:-}" != '' ] || err "no askpass program specified, try setting SUDO_ASKPASS"
 		_sudo_askpass=$SUDO_ASKPASS
-	esac  # used $SUDO_ASKPASS from env? never tested? (is this sudo's behavour?)
+		 # used $SUDO_ASKPASS from env? never tested? (is this sudo's behavour?)
+	esac
 	# it assumes that password aways will be needed, exept for root,
 	#  password is not neede for Android/MagiskSU, however there is no easy way to detect if pass will be needed
 
@@ -253,7 +266,9 @@ if [ "$_sudo_opts" != '' ]; then
 		# sudo will complain 'you may not specify environment variables in edit mode', but this script will not
 		# also original will create tmp file, hire we execute the EDITOR directly with the user on the file
 	case $_sudo_opts in *e*) # _sudo_edit=1
+		err "err, not done option -- '-e'"
 		set -- "${EDITOR:-vi}" "$@" # only outside the loop use 'set --' for -e option
+		_sudo_edit=1
 	esac
 	
 
@@ -261,7 +276,7 @@ if [ "$_sudo_opts" != '' ]; then
 	case $_sudo_opts in *H*) err "err, unimplemented option -- 'H'";esac # todo combined with -E
 
 	# @ --help)             _sudo_opts=h;;
-	case $_sudo_opts in *h*) _sudo_help=0; esac # todo: only help should be specified ? or (sudo -k -h) only???
+	case $_sudo_opts in *h*) _sudo_help=1; esac # todo: only help should be specified ? or (sudo -k -h) only???
 
 	# @ --login)            _sudo_opts=i;;
 	case $_sudo_opts in *i*) _sudo_login=1; esac
@@ -273,7 +288,7 @@ if [ "$_sudo_opts" != '' ]; then
 	: # done, nothing to do for this option
 
 	# @ --list)             _sudo_opts=l;;
-	case $_sudo_opts in *l*) err "err, unimplemented option -- 'l'";esac
+	case $_sudo_opts in *l*) err "err, unimplemented option -- 'l'"; _sudo_list=1;esac
 	# @ --non-interactive)  _sudo_opts=n;;
 	case $_sudo_opts in *n*) _sudo_non_interactive=1;esac
 	# @ --preserve-groups)
@@ -282,56 +297,59 @@ if [ "$_sudo_opts" != '' ]; then
 	case $_sudo_opts in *S*) _sudo_stdin=1; esac
 	# @ --shell)            _sudo_opts=s;;
 	case $_sudo_opts in *s*)
-		[ "$_sudo_login" = 1 ] && err 'you may not specify both the -i and -s options'
 		_sudo_shell=1
 	esac
 	# @ --version)          _sudo_opts=V;;
-	case $_sudo_opts in *V*) err "err, unimplemented option -- 'V'";esac
+	case $_sudo_opts in *V*) err "err, unimplemented option -- 'V'"; _sudo_version=1;esac
 	# @ --validate)         _sudo_opts=v;;
-	case $_sudo_opts in *v*) err "err, unimplemented option -- 'v'";esac
+	case $_sudo_opts in *v*) err "err, unimplemented option -- 'v'"; _sudo_validate=1;esac
+
+	case $_sudo_edit$_sudo_help$_sudo_login$_sudo_shell$_sudo_remove_timestamp$_sudo_list$_sudo_version$_sudo_validate in
+		*??*) err 'Only one of the -e, -h, -i, -K, -l, -s, -v or -V options may be specified'
+	esac
+ 
 fi
 
 #echo  $_sudo_help
 [ "$_sudo_help" = '' ] || {
-	# TODO TEST IF SUDO -g REALLY USES ID 
 	printf %s\\n \
-		"sudo - execute a command as another user"\
-		""\
-		"usage: sudo -h | -K | -k | -V"\
-		"usage: sudo -v [-ABknS] [-g group] [-h host] [-p prompt] [-u user]"\
-		"usage: sudo -l [-ABknS] [-g group] [-h host] [-p prompt] [-U user] [-u user] [command]"\
-		"usage: sudo [-ABbEHknPS] [-C num] [-D directory] [-g group] [-h host] [-p prompt] [-R directory] [-T timeout] [-u user] [VAR=value] [-i|-s] [<command>]"\
-		"usage: sudo -e [-ABknS] [-C num] [-D directory] [-g group] [-h host] [-p prompt] [-R directory] [-T timeout] [-u user] file ..."\
-		""\
-		"Options:"\
-		"#   -A, --askpass                 use a helper program for password prompting"\
-		"    -b, --background              run command in the background"\
-		"    -B, --bell                    ring bell when prompting"\
-		"#   -C, --close-from=num          close all file descriptors >= num"\
-		"#   -D, --chdir=directory         change the working directory before running command"\
-		"#?  -E, --preserve-env            preserve user environment when running command"\
-		"        --preserve-env=list       preserve specific environment variables"\
-		"#   -e, --edit                    edit files instead of running a command"\
-		"#   -g, --group=group             run command as the specified group name or ID"\
-		"#   -H, --set-home                set HOME variable to target user's home dir"\
-		"    -h, --help                    display help message and exit"\
-		"    -h, --host=host               run command on host (if supported by plugin)"\
-		"    -i, --login                   run login shell as the target user; a command may also be specified"\
-		"    -K, --remove-timestamp        remove timestamp file completely"\
-		"#   -k, --reset-timestamp         invalidate timestamp file"\
-		"#   -l, --list                    list user's privileges or check a specific command; use twice for longer format"\
-		"#   -n, --non-interactive         non-interactive mode, no prompts are used"\
-		"#   -P, --preserve-groups         preserve group vector instead of setting to target's"\
-		"#   -p, --prompt=prompt           use the specified password prompt"\
-		"#   -R, --chroot=directory        change the root directory before running command"\
-		"    -S, --stdin                   read password from standard input"\
-		"    -s, --shell                   run shell as the target user; a command may also be specified"\
-		"#   -T, --command-timeout=timeout terminate command after the specified time limit"\
-		"#   -U, --other-user=user         in list mode, display privileges for user"\
-		"    -u, --user=user               run command (or edit file) as specified user name or ID"\
-		"    -V, --version                 display version information and exit"\
-		"#   -v, --validate                update user's timestamp without running a command"\
-		"    --                            stop processing command line arguments"\
+		"sudo - execute a command as another user" \
+		"" \
+		"usage: sudo -h | -K | -k | -V" \
+		"usage: sudo -v [-ABknS] [-g group] [-h host] [-p prompt] [-u user]" \
+		"usage: sudo -l [-ABknS] [-g group] [-h host] [-p prompt] [-U user] [-u user] [command]" \
+		"usage: sudo [-ABbEHknPS] [-C num] [-D directory] [-g group] [-h host] [-p prompt] [-R directory] [-T timeout] [-u user] [VAR=value] [-i|-s] [<command>]" \
+		"usage: sudo -e [-ABknS] [-C num] [-D directory] [-g group] [-h host] [-p prompt] [-R directory] [-T timeout] [-u user] file ..." \
+		"" \
+		"Options:" \
+		"#   -A, --askpass                 use a helper program for password prompting" \
+		"    -b, --background              run command in the background" \
+		"    -B, --bell                    ring bell when prompting" \
+		"##  -C, --close-from=num          close all file descriptors >= num" \
+		"#   -D, --chdir=directory         change the working directory before running command" \
+		"#?  -E, --preserve-env            preserve user environment when running command" \
+		"?       --preserve-env=list       preserve specific environment variables" \
+		"?   -e, --edit                    edit files instead of running a command" \
+		"    -g, --group=group             run command as the specified group nam" \
+		"#   -H, --set-home                set HOME variable to target user's home dir" \
+		"    -h, --help                    display help message and exit" \
+		"#   -h, --host=host               run command on host (if supported by plugin)" \
+		"?   -i, --login                   run login shell as the target user; a command may also be specified" \
+		"    -K, --remove-timestamp        remove timestamp file completely" \
+		"?   -k, --reset-timestamp         invalidate timestamp file" \
+		"#   -l, --list                    list user's privileges or check a specific command; use twice for longer format" \
+		"    -n, --non-interactive         non-interactive mode, no prompts are used" \
+		"#   -P, --preserve-groups         preserve group vector instead of setting to target's" \
+		"#   -p, --prompt=prompt           use the specified password prompt" \
+		"#   -R, --chroot=directory        change the root directory before running command" \
+		"    -S, --stdin                   read password from standard input" \
+		"?   -s, --shell                   run shell as the target user; a command may also be specified" \
+		"#   -T, --command-timeout=timeout terminate command after the specified time limit" \
+		"#   -U, --other-user=user         in list mode, display privileges for user" \
+		"    -u, --user=user               run command (or edit file) as specified user name" \
+		"    -V, --version                 display version information and exit" \
+		"#   -v, --validate                update user's timestamp without running a command" \
+		"    --                            stop processing command line arguments" \
 	;
 	exit "$_sudo_help"
 }
@@ -395,16 +413,25 @@ if [ "$_sudo_group" != '' ]; then
 	esac
 fi
 
-[ "$SUDO_UID" -eq 0 ] || { # when not root, expected password to be needed. ring the bell:
-	# is tty used in real sudo for the bell
-	# "BELL\n" IS ONLY FOR TEST:
-	printf %b "${_sudo_bell:+BELL\\n}" >/dev/tty 
-
-}
 if [ "$SUDO_UID" -eq 0 ] && [ "$_sudo_user" = "$SUDO_USER" ]; then
-	eval 'exec "$@" '" $_sudo_background"
 	# todo: checking for  _sudo_login/_sudo_shell
-elif [ "$_sudo_non_interactive" = 1 ]; then
+	eval 'exec "$@" '" $_sudo_background"
+elif
+	{
+		# [ "$_sudo_askpass" != '' ] ||
+		[ "$_sudo_stdin" != '' ] || [ -r /dev/tty ] && [ -w /dev/tty ] || {
+			err 'a terminal is required to read the password; either use the -S option to read from standard input (--or configure an askpass helper--)' 0 # askpass not done
+			err 'a password is required' 1
+		}
+		
+		# expected password to be needed. ring the bell:
+		# is tty used in real sudo for the bell
+		printf %b "${_sudo_bell:+BELL\\n}" >/dev/tty # todo when no tty //OR waht should happen when '-S' is passed
+		# "BELL\n" IS ONLY FOR TEST:
+
+	}
+#elif #continues:
+	[ "$_sudo_non_interactive" = 1 ]; then
 	err 'a password is required'
 elif [ "$_sudo_stdin" = 1 ]; then
 	if [ -n "$_sudo_login$_sudo_shell" ]; then
