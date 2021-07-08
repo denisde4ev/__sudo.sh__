@@ -8,7 +8,7 @@ SUDO_GID=${GROUPS:-$(id -g)}
 
 err() {
 	printf '%s\n' "${0##*/}: $1" >&2
-	[ "$2" != 0] && exit "${2:-1}" 
+	[ "$2" != 0 ] && exit "${2:-1}"
 }
 
 nonempty() {
@@ -54,7 +54,7 @@ vars \
 	\
 	\
 	_sudo_opts \
-	_sudo_opts_ \
+	_sudo_tmp \
 	_sudo_arg_key \
 	_sudo_arg_val \
 	\
@@ -67,7 +67,7 @@ while [ "$#" -ne 0 ]; do
 #  would it be better to iterate using $(substr "$1" "$i" 1) through short args args
 	# _sudo_opts=$1 # should not be needed, just in case
 	_sudo_arg_key=''
-	unset _sudo_opts_
+	unset _sudo_tmp
 	unset _sudo_arg_val
 
 	# first convent short args to long args:
@@ -80,21 +80,21 @@ while [ "$#" -ne 0 ]; do
 		-[CDghpRTUu]*|-[!-]*[CDghpRTUu]*)
 			# get valuae of options that reguire argument
 
-			_sudo_opts_=${1%%[CDghpRTUu]*}
-			_sudo_arg_val=${1#"$_sudo_opts_"?}
+			_sudo_tmp=${1%%[CDghpRTUu]*}
+			_sudo_arg_val=${1#"$_sudo_tmp"?}
 			_sudo_arg_key=${1%"$_sudo_arg_val"} # tmp
-			_sudo_arg_key=${_sudo_arg_key#"$_sudo_opts_"}
+			_sudo_arg_key=${_sudo_arg_key#"$_sudo_tmp"}
 			# maybe needs optimisation?
 			# I will not even try to explain those lines
 			# when it brakes just rewrite it
 			# ALTERNATIVE CODE: # _sudo_opts=${1%%[CDghpRTUu]*};_sudo_arg_val=${1#"$_sudo_opts"};_sudo_arg_key=${_sudo_arg_val%"${_sudo_arg_val#?}"};_sudo_arg_val=${_sudo_arg_val#"$_sudo_arg_key"}
 
-			[ "$1" = "$_sudo_opts_$_sudo_arg_key$_sudo_arg_val" ] \
+			[ "$1" = "$_sudo_tmp$_sudo_arg_key$_sudo_arg_val" ] \
 			&& case $_sudo_arg_key in *[CDghpRTUu]) true;; *) false; esac \
 			|| err "error parsing arguments in -- '${1:-}'" 2
 
 
-			_sudo_opts=${_sudo_opts_#-}$_sudo_opts
+			_sudo_opts=${_sudo_tmp#-}$_sudo_opts
 			# _sudo_arg_key=$_sudo_arg_key$_sudo_arg_key
 			[ "$_sudo_arg_val" != '' ] || {
 				if [ 2 -le $# ]; then
@@ -131,7 +131,7 @@ while [ "$#" -ne 0 ]; do
 		--*) # options with arguments:
 			case ${1#"--"} in
 				# todo what option what should do when is empty (--user='')
-				preserve-env=*) err "err, unimplemented option -- '${1%%=*}'" ; sudo_arg_val=;; # ony value when has '=' 
+				preserve-env=*) err "err, unimplemented option -- '${1%%=*}'" ; sudo_arg_val=;; # ony value when has '='
 				###### GENERATED USING: sudo -h  | sed -nEe 's/^  (-[^-]+), --([^ =]*)=[^ =]+ .+/\2|\2=*) _sudo_arg_key=\1;;/p'
 				close-from|close-from=*)           _sudo_arg_key=C;;
 				chdir|chdir=*)                     _sudo_arg_key=D;;
@@ -169,7 +169,7 @@ while [ "$#" -ne 0 ]; do
 #set -x # easy way to deug
 #	__1=$1
 #	_sudo_opts=$_sudo_opts
-#	_sudo_opts_=$_sudo_opts_
+#	_sudo_tmp=$_sudo_tmp
 #	_sudo_arg_val=$_sudo_arg_val
 #	_sudo_arg_key=$_sudo_arg_key
 #)||: # debug log
@@ -184,7 +184,7 @@ while [ "$#" -ne 0 ]; do
 			# -C, --close-from=num   # todo: wut
 			# @ chdir|chdir=?*)                     _sudo_arg_key=D;;
 			D) _sudo_chdir="$_sudo_arg_val";;
-			# by most default sudoers config  -D is not alowed for user? # todo further check if; true 
+			# by most default sudoers config  -D is not alowed for user? # todo further check if; true
 
 			# @ group|group=?*)                     _sudo_arg_key=g;;
 			g) _sudo_group="$_sudo_arg_val"; nonempty "$_sudo_group" group;;
@@ -205,7 +205,7 @@ while [ "$#" -ne 0 ]; do
 	shift
 	# arg "$@" # debug log
 done
-
+unset _sudo_tmp
 
 
 
@@ -222,7 +222,7 @@ if [ "$_sudo_opts" != '' ]; then
 		*i*E*|*E*i*) err 'you may not specify both the -i and -E options';;
 		*i*s*|*s*i*) err 'you may not specify both the -i and -s options';;
 
-		
+
 		*U*)
 			case $_sudo_opts in
 				*l*) ;;
@@ -239,10 +239,10 @@ if [ "$_sudo_opts" != '' ]; then
 		the argument to -C must be a number greater than or equal to 3
 		# you are not permitted to use the -D option with
 		#you may not specify both the -i and -E options
-		
+
 	TODO
 
-	
+
 	# @ --askpass)          _sudo_opts=A;;
 	case $_sudo_opts in *A*)
 		[ "${SUDO_ASKPASS:-}" != '' ] || err "no askpass program specified, try setting SUDO_ASKPASS"
@@ -270,7 +270,7 @@ if [ "$_sudo_opts" != '' ]; then
 		set -- "${EDITOR:-vi}" "$@" # only outside the loop use 'set --' for -e option
 		_sudo_edit=1
 	esac
-	
+
 
 	# @ --set-home)         _sudo_opts=H;;
 	case $_sudo_opts in *H*) err "err, unimplemented option -- 'H'";esac # todo combined with -E
@@ -307,7 +307,7 @@ if [ "$_sudo_opts" != '' ]; then
 	case $_sudo_edit$_sudo_help$_sudo_login$_sudo_shell$_sudo_remove_timestamp$_sudo_list$_sudo_version$_sudo_validate in
 		*??*) err 'Only one of the -e, -h, -i, -K, -l, -s, -v or -V options may be specified'
 	esac
- 
+
 fi
 
 #echo  $_sudo_help
@@ -384,15 +384,15 @@ if [ "$_sudo_user" != root ]; then
 fi
 
 # just validate that the user is in the group
-if [ "$_sudo_group" != '' ]; then 
+if [ "$_sudo_group" != '' ]; then
 	command -v getent >/dev/null \
 	&& _sudo_tmp=$(getent -- group "$_sudo_group") \
 	|| _sudo_tmp=$(cat "${PREFIX:-}"/etc/group)
 
 	_sudo_tmp=$(printf %s\\n "$_sudo_tmp" | cut -d : -f 1  | tr $'\n' :)
-	_sudo_tmp="${_sudo_tmp%"${_sudo_tmp##*[!:]}"}" # trim end form multiple ':'
+	#_sudo_tmp="${_sudo_tmp%"${_sudo_tmp##*[!:]}"}" # trim end form multiple ':'
 
-	case ":$_sudo_tmp" in
+	case :$_sudo_tmp in
 		*:"$_sudo_group":*)
 			case " $(id -Gn -- "$_sudo_user") " in
 				*" $_sudo_group "*);;  # all good, user is in the group
@@ -408,8 +408,8 @@ if [ "$_sudo_group" != '' ]; then
 				;;
 			esac
 		;;
-		:*:) err "unknown group: $_sudo_group";;
-		*) err "Error invalid output for groups: '$_sudo_tmp'";;
+		:*[!:]*:) err "unknown group: $_sudo_group";;
+		*) err "Error invalid output for group: '$_sudo_tmp' to match '$_sudo_group'";;
 	esac
 fi
 
@@ -419,11 +419,11 @@ if [ "$SUDO_UID" -eq 0 ] && [ "$_sudo_user" = "$SUDO_USER" ]; then
 elif
 	{
 		# [ "$_sudo_askpass" != '' ] ||
-		[ "$_sudo_stdin" != '' ] || [ -r /dev/tty ] && [ -w /dev/tty ] || {
+		[ "$_sudo_stdin" != '' ] || { [ -r /dev/tty ] && [ -w /dev/tty ]; } || {
 			err 'a terminal is required to read the password; either use the -S option to read from standard input (--or configure an askpass helper--)' 0 # askpass not done
 			err 'a password is required' 1
 		}
-		
+
 		# expected password to be needed. ring the bell:
 		# is tty used in real sudo for the bell
 		printf %b "${_sudo_bell:+BELL\\n}" >/dev/tty # todo when no tty //OR waht should happen when '-S' is passed
@@ -472,7 +472,7 @@ else
 	# exec su \
 		# -c '
 			# if [ "$SHELL" = "$0" ];
-			# then cd "$1";shift;else cd "$0" && 
+			# then cd "$1";shift;else cd "$0" &&
 			# fi ; exec <&3 "$@"
 		# ' "$_sudo_user" \
 		# -- "$_sudo_chdir" "$@" 3<&0 </dev/tty \
