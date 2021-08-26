@@ -8,7 +8,7 @@ SUDO_GID=${GROUPS:-$(id -g)}
 
 err() {
 	printf '%s\n' "${0##*/}: $1" >&2
-	[ "$2" != 0 ] && exit "${2:-1}"
+	[ "${2:-1}" != 0 ] && exit "${2:-1}"
 }
 
 nonempty() {
@@ -17,12 +17,13 @@ nonempty() {
 
 # safe check if var is NOT exported
 vars() {
-	for i; do
+	for _sudo_tmp; do
 		        # (set -u) is needed!
-		eval "if ( : \"\${${i}}\"; ); then echo NO $i return 1 ; else ${i}=''; fi "
+		eval "if ( : \"\${${_sudo_tmp}}\"; ); then err \"err: '$_sudo_tmp' should not be in the enviroment\"; return 1 ; else ${_sudo_tmp}=''; fi "
 	done 2>/dev/null 2>/dev/null
 }
 
+# only _sudo_tmp is not checked!
 ## some GENERATED USING: sudo -h  | sed -nEe '/^  -[^-]+/ { s/.*--([^ =]+).*/_sudo_\1 \\/; s/-/_/; p; }'
 vars \
 	_sudo_askpass \
@@ -54,17 +55,26 @@ vars \
 	\
 	\
 	_sudo_opts \
-	_sudo_tmp \
 	_sudo_arg_key \
 	_sudo_arg_val \
 	\
+	_sudo_nl \
 || exit
 
+_sudo_nl='
+' # just a new line
 _sudo_user=root
+
+# Why all vairables has _sudo_ as prefix?
+# shell vairables are the same as env vairables
+# for example if 'user' is used instead of '_sudo_user'
+# then the command:   $ user=foo sudo env | grep ^user=
+# the 'user' var will be overwritten, or as the current case 
+# will throw err "err: 'user' should not be in the enviroment"
+
 
 
 while [ "$#" -ne 0 ]; do
-#  would it be better to iterate using $(substr "$1" "$i" 1) through short args args
 	# _sudo_opts=$1 # should not be needed, just in case
 	_sudo_arg_key=''
 	unset _sudo_tmp
@@ -80,9 +90,10 @@ while [ "$#" -ne 0 ]; do
 		-[CDghpRTUu]*|-[!-]*[CDghpRTUu]*)
 			# get valuae of options that reguire argument
 
+			# from  $1='-buUSER' to  opts=b key=u val=USER
 			_sudo_tmp=${1%%[CDghpRTUu]*}
 			_sudo_arg_val=${1#"$_sudo_tmp"?}
-			_sudo_arg_key=${1%"$_sudo_arg_val"} # tmp
+			_sudo_arg_key=${1%"$_sudo_arg_val"}
 			_sudo_arg_key=${_sudo_arg_key#"$_sudo_tmp"}
 			# maybe needs optimisation?
 			# I will not even try to explain those lines
@@ -128,10 +139,10 @@ while [ "$#" -ne 0 ]; do
 		--shell)            _sudo_opts=s$_sudo_opts;;
 		--version)          _sudo_opts=V$_sudo_opts;;
 		--validate)         _sudo_opts=v$_sudo_opts;;
-		--*) # options with arguments:
+		--*) # options with arguments:   => sets _sudo_arg_val
 			case ${1#"--"} in
 				# todo what option what should do when is empty (--user='')
-				preserve-env=*) err "err, unimplemented option -- '${1%%=*}'" ; sudo_arg_val=;; # ony value when has '='
+				preserve-env=*) err "err: unimplemented option -- '${1%%=*}'" ; sudo_arg_val=;; # ony value when '='
 				###### GENERATED USING: sudo -h  | sed -nEe 's/^  (-[^-]+), --([^ =]*)=[^ =]+ .+/\2|\2=*) _sudo_arg_key=\1;;/p'
 				close-from|close-from=*)           _sudo_arg_key=C;;
 				chdir|chdir=*)                     _sudo_arg_key=D;;
@@ -164,20 +175,9 @@ while [ "$#" -ne 0 ]; do
 		*) err "Error parsing '$1', args($#) left: $*" 111;;
 	esac
 
-#(
-#exit 0 # now no need to debug
-#set -x # easy way to deug
-#	__1=$1
-#	_sudo_opts=$_sudo_opts
-#	_sudo_tmp=$_sudo_tmp
-#	_sudo_arg_val=$_sudo_arg_val
-#	_sudo_arg_key=$_sudo_arg_key
-#)||: # debug log
-
-
 	# todo  complain abut empty optiont
 	if [ "$_sudo_arg_key" != '' ]; then
-		# case $_sudo_arg_key in [ug]) err
+		# case $_sudo_arg_key in [ug]) err  # TODO: error handle
 		case $_sudo_arg_key in
 			'') ;;
 			# @ close-from|close-from=?*)           _sudo_arg_key=C;;
@@ -188,7 +188,7 @@ while [ "$#" -ne 0 ]; do
 
 			# @ group|group=?*)                     _sudo_arg_key=g;;
 			g) _sudo_group="$_sudo_arg_val"; nonempty "$_sudo_group" group;;
-			# @ host|host=?*)                       _sudo_arg_key=h;;
+			# @ host|host=?*)                       _sudo_arg_key=h;; # todo: should not be empty (-h '') + more validate
 			# @ prompt|prompt=?*)                   _sudo_arg_key=p;;
 			# @ chroot|chroot=?*)                   _sudo_arg_key=R;;
 			R) _sudo_unimplemented=1;; #_sudo_chroot=$_sudo_arg_val
@@ -197,15 +197,14 @@ while [ "$#" -ne 0 ]; do
 			# @ other-user|other-user=?*)           _sudo_arg_key=U;;
 			# @ user|user=?*)                       _sudo_arg_key=u;;
 			u) _sudo_user=$_sudo_arg_val; nonempty "$_sudo_user" name;;
-			*) err "err, unimplemented option -- '$_sudo_arg_key'";;
+			*) err "err: unimplemented option -- '$_sudo_arg_key'";;
 		esac
 	fi
 
 
 	shift
-	# arg "$@" # debug log
 done
-unset _sudo_tmp
+_sudo_tmp=''
 
 
 
@@ -232,7 +231,7 @@ if [ "$_sudo_opts" != '' ]; then
 	esac
 
 
-	: grep -v '#' : <<- TODO
+	: grep -v ' #' : <<- TODO
 		# the -A and -S options may not be used together
 		# Only one of the -e, -h, -i, -K, -l, -s, -v or -V options may be specified
 		# the -U option may only be used with the -l option
@@ -259,24 +258,24 @@ if [ "$_sudo_opts" != '' ]; then
 	case $_sudo_opts in *B*) _sudo_bell='\a'; esac # todo : add to begining in prompt
 
 	# @ --preserve-env)     _sudo_opts=E;;
-	case $_sudo_opts in *E*) err "err, unimplemented option -- 'E'";esac
-	# case $_sudo_opts in *E*) ;; esac # TODO: MUST IMPLEMENT, now is like it is passed -E
+	case $_sudo_opts in *E*) err "err: unimplemented option -- 'E'";esac
+	# case $_sudo_opts in *E*) ;; esac # TODO: MUST IMPLEMENT, now is like it is passed -E?
 
 	# @ --edit)             _sudo_opts=e;;
 		# sudo will complain 'you may not specify environment variables in edit mode', but this script will not
-		# also original will create tmp file, hire we execute the EDITOR directly with the user on the file
+		# also original will create tmp file, hire we execute the EDITOR directly with the _sudo_user on the file
 	case $_sudo_opts in *e*) # _sudo_edit=1
-		err "err, not done option -- '-e'"
+		err "err: not done option -- '-e'"
 		set -- "${EDITOR:-vi}" "$@" # only outside the loop use 'set --' for -e option
 		_sudo_edit=1
 	esac
 
 
 	# @ --set-home)         _sudo_opts=H;;
-	case $_sudo_opts in *H*) err "err, unimplemented option -- 'H'";esac # todo combined with -E
+	case $_sudo_opts in *H*) err "err: unimplemented option -- 'H'";esac # todo combined with -E
 
 	# @ --help)             _sudo_opts=h;;
-	case $_sudo_opts in *h*) _sudo_help=1; esac # todo: only help should be specified ? or (sudo -k -h) only???
+	case $_sudo_opts in *h*) _sudo_help=0; esac # todo: only help should be specified ? or (sudo -k -h) only???
 
 	# @ --login)            _sudo_opts=i;;
 	case $_sudo_opts in *i*) _sudo_login=1; esac
@@ -285,14 +284,14 @@ if [ "$_sudo_opts" != '' ]; then
 	case $_sudo_opts in *K*) _sudo_remove_timestamp=1; esac
 
 	# @ --reset-timestamp)  _sudo_opts=k;;
-	: # done, nothing to do for this option
+	# Done, nothing to do for this option
 
 	# @ --list)             _sudo_opts=l;;
-	case $_sudo_opts in *l*) err "err, unimplemented option -- 'l'"; _sudo_list=1;esac
+	case $_sudo_opts in *l*) err "err: unimplemented option -- 'l'"; _sudo_list=1;esac
 	# @ --non-interactive)  _sudo_opts=n;;
 	case $_sudo_opts in *n*) _sudo_non_interactive=1;esac
 	# @ --preserve-groups)
-	case $_sudo_opts in *P*) err "err, unimplemented option -- 'p'";esac
+	case $_sudo_opts in *P*) err "err: unimplemented option -- 'p'";esac
 	# @ --stdin)            _sudo_opts=S;;
 	case $_sudo_opts in *S*) _sudo_stdin=1; esac
 	# @ --shell)            _sudo_opts=s;;
@@ -300,17 +299,83 @@ if [ "$_sudo_opts" != '' ]; then
 		_sudo_shell=1
 	esac
 	# @ --version)          _sudo_opts=V;;
-	case $_sudo_opts in *V*) err "err, unimplemented option -- 'V'"; _sudo_version=1;esac
+	case $_sudo_opts in *V*) err "err: unimplemented option -- 'V'"; _sudo_version=1;esac
 	# @ --validate)         _sudo_opts=v;;
-	case $_sudo_opts in *v*) err "err, unimplemented option -- 'v'"; _sudo_validate=1;esac
+	case $_sudo_opts in *v*) err "err: unimplemented option -- 'v'"; _sudo_validate=1;esac
 
-	case $_sudo_edit$_sudo_help$_sudo_login$_sudo_shell$_sudo_remove_timestamp$_sudo_list$_sudo_version$_sudo_validate in
+	# note: _sudo_help is error code not jst a 1/'' flag
+	case $_sudo_edit${_sudo_help:+1}$_sudo_login$_sudo_shell$_sudo_remove_timestamp$_sudo_list$_sudo_version$_sudo_validate in
 		*??*) err 'Only one of the -e, -h, -i, -K, -l, -s, -v or -V options may be specified'
 	esac
 
 fi
 
-#echo  $_sudo_help
+
+[ -n "$_sudo_shell" ] && [ -n "$_sudo_login" ] && {
+	echo >&2 'sudo: you may not specify both the -i and -s options'
+	# TODO usage help message
+	exit 1
+}
+
+
+
+if [ "$_sudo_chdir" = '' ]; then _sudo_chdir=$PWD; fi
+
+# cd "$_sudo_chdir"  # shoud not  WHEN [ "$_sudo_login$_sudo_shell" != '' ] && [ "$#" -eq 0 ]
+
+# expected "su" to read passwrod from stdin by default,  not tested on all platforms?
+
+
+if [ "$_sudo_user" != root ]; then
+	# id would accept IDs .. who would have thought
+	case $_sudo_user in
+		*[!0-9]*) ;;
+		*) err "unknown user: $_sudo_user";;
+	esac
+	_sudo_tmp=$(id -un -- "$_sudo_user" 2>&-)
+
+	[ "$_sudo_tmp" = "$_sudo_user" ] \
+	|| err "err: uanexpected ousput from id, expected: _sudo_user='$_sudo_user', got: '$_sudo_tmp'"
+fi
+
+# just validate that the user is in the group
+if [ "$_sudo_group" != '' ]; then
+
+	_sudo_tmp=$(
+		{
+			command -v getent >/dev/null \
+			&& getent -- group "$_sudo_group" \
+			|| cat "${PREFIX:-}"/etc/group
+		} | cut -d : -f 1  | tr "$_sudo_nl" :
+	)
+	#_sudo_tmp="${_sudo_tmp%"${_sudo_tmp##*[!:]}"}" # trim end form multiple ':'
+
+	case :${_sudo_tmp%":"}: in 
+		*:"$_sudo_group":*)
+			case " $(id -Gn -- "$_sudo_user") " in
+				*" $_sudo_group "*) ;;  # all good, user is in the group
+				*)
+					printf %s \
+						"Sorry, user $SUDO_USER" \
+						" is not allowed to execute '$1'" \
+						" as $_sudo_user:$_sudo_group" \
+						" on ${NAME:-$(hostname)}." \
+					;	# is $NAME hostname for all distros that use it, todo check?
+					echo
+					exit 1
+				;;
+			esac
+		;;
+		:*[!:]*:) err "unknown group: $_sudo_group";;
+		*) err "Error invalid output for group: '$_sudo_tmp' to match '$_sudo_group'";;
+	esac
+fi
+
+# arguments parsing gone
+
+
+
+
 [ "$_sudo_help" = '' ] || {
 	printf %s\\n \
 		"sudo - execute a command as another user" \
@@ -354,64 +419,10 @@ fi
 	exit "$_sudo_help"
 }
 
-[ -n "$_sudo_shell" ] && [ -n "$_sudo_login" ] && {
-	echo >&2 'sudo: you may not specify both the -i and -s options'
-	# TODO usage help message
-	exit 1
-}
 
 
 
-[ "$_sudo_chdir" != '' ] || _sudo_chdir=${PWD:-$(pwd)}
 
-# cd "$_sudo_chdir"  # shoud not  WHEN [ "$_sudo_login$_sudo_shell" != '' ] && [ "$#" -eq 0 ]
-
-# expected "su" to read passwrod from stdin by default,  not tested on all platforms?
-
-
-if [ "$_sudo_user" != root ]; then
-	# id would accept IDs .. who would have thought
-	case $_sudo_user in *[!0-9]*) true;; *) false; esac \
-	&& _sudo_tmp=$(id -un -- "$_sudo_user" 2>&-) \
-	|| err "unknown user: $_sudo_user"
-
-	[ "$_sudo_tmp" = "$_sudo_user" ] \
-	|| err \
-		"Error uanexpected ousput from id,`:
-		` expected: _sudo_user='$_sudo_user',`:
-		` got: '$_sudo_tmp'"\
-	;
-fi
-
-# just validate that the user is in the group
-if [ "$_sudo_group" != '' ]; then
-	command -v getent >/dev/null \
-	&& _sudo_tmp=$(getent -- group "$_sudo_group") \
-	|| _sudo_tmp=$(cat "${PREFIX:-}"/etc/group)
-
-	_sudo_tmp=$(printf %s\\n "$_sudo_tmp" | cut -d : -f 1  | tr $'\n' :)
-	#_sudo_tmp="${_sudo_tmp%"${_sudo_tmp##*[!:]}"}" # trim end form multiple ':'
-
-	case :$_sudo_tmp in
-		*:"$_sudo_group":*)
-			case " $(id -Gn -- "$_sudo_user") " in
-				*" $_sudo_group "*);;  # all good, user is in the group
-				*)
-					printf %s \
-						"Sorry, user $SUDO_USER" \
-						" is not allowed to execute '$1'" \
-						" as $_sudo_user:$_sudo_group" \
-						" on ${NAME:-$(hostname)}." \
-					;	# is $NAME hostname for all distros that use it, todo check?
-					echo
-					exit 1
-				;;
-			esac
-		;;
-		:*[!:]*:) err "unknown group: $_sudo_group";;
-		*) err "Error invalid output for group: '$_sudo_tmp' to match '$_sudo_group'";;
-	esac
-fi
 
 if [ "$SUDO_UID" -eq 0 ] && [ "$_sudo_user" = "$SUDO_USER" ]; then
 	# todo: checking for  _sudo_login/_sudo_shell
@@ -429,9 +440,10 @@ elif
 		printf %b "${_sudo_bell:+BELL\\n}" >/dev/tty # todo when no tty //OR waht should happen when '-S' is passed
 		# "BELL\n" IS ONLY FOR TEST:
 
-	}
-#elif #continues:
-	[ "$_sudo_non_interactive" = 1 ]; then
+	};
+	#elif #continues:
+	[ "$_sudo_non_interactive" = 1 ];
+then
 	err 'a password is required'
 elif [ "$_sudo_stdin" = 1 ]; then
 	if [ -n "$_sudo_login$_sudo_shell" ]; then
