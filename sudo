@@ -2,8 +2,12 @@
 set -feu
 
 export SUDO_COMMAND="$*" SUDO_USER SUDO_UID SUDO_GID
-SUDO_USER=${USER:-$(id -un)} # TODO: name in not changed when using (su) no with args
 SUDO_UID=${EUID:-$(id -u)}
+if [ "$SUDO_UID" = 0 ]; then
+	SUDO_USER=root
+else
+	SUDO_USER=${USER:-$(id -un)} # NOTE: name in not changed ater su
+fi
 SUDO_GID=${GROUPS:-$(id -g)}
 
 err() {
@@ -262,7 +266,7 @@ if [ "$_sudo_opts" != '' ]; then
 	# case $_sudo_opts in *E*) ;; esac # TODO: MUST IMPLEMENT, now is like it is passed -E?
 
 	# @ --edit)             _sudo_opts=e;;
-		# sudo will complain 'you may not specify environment variables in edit mode', but this script will not
+		# sudo will complain 'you may not specify environment variables in edit mode', but this script will allow it
 		# also original will create tmp file, hire we execute the EDITOR directly with the _sudo_user on the file
 	case $_sudo_opts in *e*) # _sudo_edit=1
 		err "err: not done option -- '-e'"
@@ -311,15 +315,11 @@ if [ "$_sudo_opts" != '' ]; then
 fi
 
 
-[ -n "$_sudo_shell" ] && [ -n "$_sudo_login" ] && {
-	echo >&2 'sudo: you may not specify both the -i and -s options'
-	# TODO usage help message
-	exit 1
-}
+[ -n "$_sudo_shell" ] && [ -n "$_sudo_login" ] && err 'you may not specify both the -i and -s options'
 
 
 
-if [ "$_sudo_chdir" = '' ]; then _sudo_chdir=$PWD; fi
+: "${_sudo_chdir:=$PWD}"
 
 # cd "$_sudo_chdir"  # shoud not  WHEN [ "$_sudo_login$_sudo_shell" != '' ] && [ "$#" -eq 0 ]
 
@@ -327,7 +327,7 @@ if [ "$_sudo_chdir" = '' ]; then _sudo_chdir=$PWD; fi
 
 
 if [ "$_sudo_user" != root ]; then
-	# id would accept IDs .. who would have thought
+	# id would accept IDs .. but sudo wont
 	case $_sudo_user in
 		*[!0-9]*) ;;
 		*) err "unknown user: $_sudo_user";;
@@ -437,7 +437,7 @@ elif
 
 		# expected password to be needed. ring the bell:
 		# is tty used in real sudo for the bell
-		printf %b "${_sudo_bell:+BELL\\n}" >/dev/tty # todo when no tty //OR waht should happen when '-S' is passed
+		[ "$_sudo_bell" = '' ] || printf %b "${_sudo_bell:+BELL\\n}" >/dev/tty # todo when no tty //OR waht should happen when '-S' is passed
 		# "BELL\n" IS ONLY FOR TEST:
 
 	};
