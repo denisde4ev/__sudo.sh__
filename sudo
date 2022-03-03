@@ -19,17 +19,9 @@ nonempty() {
 	[ "$1" != '' ] || err "empty value for $2 not allowed"
 }
 
-# safe check if var is NOT exported
-vars() {
-	for _sudo_tmp; do
-		        # (set -u) is needed!
-		eval "if ( : \"\${${_sudo_tmp}}\"; ); then err \"err: '$_sudo_tmp' should not be in the enviroment\"; return 1 ; else ${_sudo_tmp}=''; fi "
-	done 2>/dev/null 2>/dev/null
-}
-
 # only _sudo_tmp is not checked!
 ## some GENERATED USING: sudo -h  | sed -nEe '/^  -[^-]+/ { s/.*--([^ =]+).*/_sudo_\1 \\/; s/-/_/; p; }'
-vars \
+unset \
 	_sudo_askpass \
 	_sudo_background \
 	_sudo_bell \
